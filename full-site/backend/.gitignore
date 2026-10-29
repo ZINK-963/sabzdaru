@@ -1,0 +1,6 @@
+node_modules
+.next
+next-env.d.ts
+public            # تولیدشده توسط scripts/sync-frontend.js
+.env
+dev-server/data.json

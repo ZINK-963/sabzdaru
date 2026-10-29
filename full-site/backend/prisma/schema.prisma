@@ -1,0 +1,509 @@
+// سبزدارو — Prisma schema
+// مبالغ فروشگاه در کد و UI بر حسب تومان ذخیره می‌شوند (Int، هرگز Float). زرین‌پال هنگام فراخوانی به ریال تبدیل می‌شود.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── هویت و دسترسی ─────────────────────────
+
+model User {
+  id            String         @id @default(cuid())
+  phone         String         @unique
+  email         String?        @unique
+  name          String
+  passwordHash  String?
+  roleId        String?
+  role          Role?          @relation(fields: [roleId], references: [id])
+  addresses     Address[]
+  orders        Order[]
+  reviews       Review[]
+  lists         ShoppingList[]
+  routines      Routine[]
+  tickets       Ticket[]
+  notifications Notification[]
+  favorites     Favorite[]
+  prefs         Json           @default("{}")
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+
+  @@index([createdAt])
+}
+
+model Role {
+  id          String       @id @default(cuid())
+  key         String       @unique
+  name        String
+  permissions Permission[] @relation("RolePermissions")
+  users       User[]
+}
+
+model Permission {
+  id    String @id @default(cuid())
+  key   String @unique
+  roles Role[] @relation("RolePermissions")
+}
+
+// ───────────────────────── کاتالوگ ─────────────────────────
+
+model Category {
+  id         String               @id @default(cuid())
+  slug       String               @unique
+  name       String
+  parentId   String?
+  parent     Category?            @relation("Tree", fields: [parentId], references: [id])
+  children   Category[]           @relation("Tree")
+  position   Int                  @default(0)
+  attributes CategoryAttribute[]
+  products   Product[]
+  seoTitle   String?
+  seoDesc    String?
+}
+
+model CategoryAttribute {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  key        String
+  label      String
+  options    String[]
+  filterable Boolean  @default(true)
+
+  @@unique([categoryId, key])
+}
+
+model Brand {
+  id      String    @id @default(cuid())
+  slug    String    @unique
+  name    String
+  logoUrl String?
+  desc    String?
+  products Product[]
+  isDemo         Boolean   @default(false)   // داده‌ٔ نمایشی seed؛ در production نمایش/فروش داده نمی‌شود
+}
+
+model Manufacturer {
+  id       String    @id @default(cuid())
+  name     String
+  country  String?
+  products Product[]
+}
+
+model Product {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  categoryId     String
+  category       Category       @relation(fields: [categoryId], references: [id])
+  brandId        String
+  brand          Brand          @relation(fields: [brandId], references: [id])
+  manufacturerId String?
+  manufacturer   Manufacturer?  @relation(fields: [manufacturerId], references: [id])
+  description    String?
+  usage          String?
+  storage        String?
+  warnings       String?
+  ingredients    String?
+  attributes     Json           @default("{}")
+  published      Boolean        @default(false)
+  variants       ProductVariant[]
+  images         ProductImage[]
+  reviews        Review[]
+  favorites      Favorite[]
+  createdAt      DateTime       @default(now())
+
+  isDemo         Boolean   @default(false)   // داده‌ٔ نمایشی seed؛ در production نمایش/فروش داده نمی‌شود
+  @@index([categoryId, published])
+  @@index([brandId])
+}
+
+model ProductVariant {
+  id           String              @id @default(cuid())
+  productId    String
+  product      Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String              @unique
+  label        String
+  price        Int      // تومان
+  salePrice    Int?     // تومان
+  saleFrom     DateTime?
+  saleUntil    DateTime?
+  batches      Batch[]
+  movements    InventoryMovement[]
+  reservations StockReservation[]
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  position  Int     @default(0)
+}
+
+// ───────────────────────── انبار ─────────────────────────
+
+model Batch {
+  id         String    @id @default(cuid())
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id])
+  code       String
+  quantity   Int
+  expiresAt  DateTime?
+  recalledAt DateTime?
+  receivedAt DateTime  @default(now())
+
+  @@index([variantId, expiresAt])
+}
+
+model InventoryMovement {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  delta     Int
+  reason    String
+  refId     String?
+  actorId   String?
+  createdAt DateTime       @default(now())
+
+  @@index([variantId, createdAt])
+}
+
+model StockReservation {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  quantity  Int
+  cartId    String
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@index([variantId])
+}
+
+// ───────────────────────── سفارش و پرداخت ─────────────────────────
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  PACKING
+  SHIPPED
+  DELIVERED
+  PAYMENT_FAILED
+  CANCELLED
+  RETURN_REQUESTED
+  RETURNED
+  DELIVERY_FAILED
+  REFUNDED
+}
+
+model Order {
+  id                String      @id @default(cuid())
+  number            String      @unique
+  userId            String?
+  user              User?       @relation(fields: [userId], references: [id])
+  status            OrderStatus @default(PENDING_PAYMENT)
+  items             OrderItem[]
+  events            OrderEvent[]
+  payments          Payment[]
+  subtotal          Int         // تومان
+  discount          Int         @default(0) // تومان
+  shippingFee       Int         @default(0) // تومان
+  total             Int         // تومان
+  couponCode        String?
+  shippingMethodId  String?
+  addressSnapshot   Json
+  customerSnapshot  Json
+  trackingCode      String?
+  cartId            String?     @unique   // کلید idempotency ثبت سفارش: تلاش مجدد با همین cartId سفارش دوم نمی‌سازد
+  createdAt         DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  orderId      String
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId    String?
+  productName  String
+  variantLabel String
+  brandName    String
+  sku          String
+  quantity     Int
+  unitPrice    Int
+  discount     Int     @default(0)
+}
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  from      String?
+  to        String
+  actorId   String?
+  actorType String
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id])
+  gateway        String
+  amount         Int
+  status         String
+  gatewayRef     String?
+  idempotencyKey String   @unique
+  rawResponse    Json?
+  refunds        Refund[]
+  createdAt      DateTime @default(now())
+}
+
+model Refund {
+  id          String    @id @default(cuid())
+  paymentId   String
+  payment     Payment   @relation(fields: [paymentId], references: [id])
+  orderId     String?
+  amount      Int
+  reason      String                              // customer_cancel | return | late_payment | duplicate_payment | admin
+  status      String    @default("pending")       // pending → completed (فقط پس از ثبت مرجع بازپرداخت درگاه توسط مدیر)
+  reference   String?                             // کد پیگیری بازپرداخت در پنل درگاه
+  note        String?
+  actorId     String?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// ───────────────────────── ارسال و تخفیف ─────────────────────────
+
+model ShippingZone {
+  id        String           @id @default(cuid())
+  name      String
+  provinces String[]
+  methods   ShippingMethod[]
+}
+
+model ShippingMethod {
+  id        String       @id @default(cuid())
+  zoneId    String
+  zone      ShippingZone @relation(fields: [zoneId], references: [id])
+  name      String
+  fee       Int          // تومان
+  etaDays   String
+  freeAbove Int?         // تومان
+  active    Boolean      @default(true)
+}
+
+model Coupon {
+  id           String             @id @default(cuid())
+  code         String             @unique
+  type         String
+  value        Int
+  maxDiscount  Int?
+  minSubtotal  Int                @default(0)
+  categoryIds  String[]
+  productIds   String[]
+  startsAt     DateTime?
+  endsAt       DateTime?
+  usageLimit   Int?
+  perUserLimit Int?
+  usedCount    Int                @default(0)
+  active       Boolean            @default(true)
+  redemptions  CouponRedemption[]
+  isDemo         Boolean   @default(false)   // داده‌ٔ نمایشی seed؛ در production نمایش/فروش داده نمی‌شود
+}
+
+model CouponRedemption {
+  id       String @id @default(cuid())
+  couponId String
+  coupon   Coupon @relation(fields: [couponId], references: [id])
+  userId   String
+  orderId  String
+
+  @@unique([couponId, orderId])
+}
+
+// ───────────────────────── محتوا و تعامل ─────────────────────────
+
+model Review {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  rating     Int
+  body       String
+  verified   Boolean  @default(false)
+  status     String   @default("pending")
+  helpful    Int      @default(0)
+  adminReply String?
+  createdAt  DateTime @default(now())
+
+  @@unique([productId, userId])
+}
+
+model ShoppingList {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  name   String
+  items  Json   @default("[]")
+}
+
+model Routine {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  name   String
+  steps  Json   @default("[]")
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id])
+  province   String
+  city       String
+  line       String
+  postalCode String
+  isDefault  Boolean @default(false)
+}
+
+model Ticket {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id])
+  subject   String
+  category  String
+  priority  String          @default("normal")
+  status    String          @default("open")
+  messages  TicketMessage[]
+  createdAt DateTime        @default(now())
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String?
+  body      String
+  internal  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Article {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  body        String
+  category    String
+  tags        String[]
+  authorId    String?
+  coverUrl    String?
+  readTime    Int
+  seoTitle    String?
+  seoDesc     String?
+  publishedAt DateTime?
+  reviewedBy  String?
+  isDemo         Boolean   @default(false)   // داده‌ٔ نمایشی seed؛ در production نمایش/فروش داده نمی‌شود
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model RestockAlert {
+  id        String   @id @default(cuid())
+  variantId String
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([variantId, email])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actorRole String?
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+/// علاقه‌مندی‌های کاربر وارد‌شده (مهمان‌ها فقط در مرورگر نگه می‌دارند و بعد از ورود sync می‌شود)
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+/// مشترکین خبرنامه
+model Subscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+/// صف خروجی پیام‌ها (پیامک/ایمیل). پیام داخل همان تراکنشِ رویداد (مثلاً پرداخت سفارش) ساخته می‌شود و
+/// جداگانه ارسال می‌شود؛ پس خرابی سرویس پیامک هرگز ثبت سفارش را ناقص نمی‌کند و dedupeKey از ارسال تکراری جلوگیری می‌کند.
+model OutboxMessage {
+  id            String    @id @default(cuid())
+  channel       String                            // sms | email
+  to            String
+  template      String
+  payload       Json
+  dedupeKey     String    @unique                 // مثلاً order:<id>:paid
+  status        String    @default("pending")     // pending | sent | failed
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  sentAt        DateTime?
+
+  @@index([status, nextAttemptAt])
+}
+
+/// گزارش اجرای وظایف زمان‌بندی‌شده (برای پایش: آخرین اجرا کی بود و موفق بود؟)
+model JobRun {
+  id         String    @id @default(cuid())
+  name       String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ok         Boolean   @default(false)
+  detail     Json?
+
+  @@index([name, startedAt])
+}

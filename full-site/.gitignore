@@ -1,0 +1,7 @@
+node_modules
+.next
+*.pyc
+__pycache__
+backend/dev-server/data.json
+backend/public
+.env

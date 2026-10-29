@@ -1,0 +1,44 @@
+{
+  "name": "sabzdaru-backend",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "seed": "tsx prisma/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "sync:frontend": "node scripts/sync-frontend.js",
+    "predev": "node scripts/sync-frontend.js",
+    "prebuild": "node scripts/sync-frontend.js",
+    "typecheck": "tsc --noEmit",
+    "demo": "node dev-server/server.js",
+    "seed:demo": "tsx prisma/seed-demo-cli.ts",
+    "harness": "tsx testkit/server.ts",
+    "preflight:production": "node scripts/check-production-env.js",
+    "migration:initial": "node scripts/create-initial-migration.js",
+    "cron:expire": "node scripts/expire-orders-cron.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "ioredis": "^5.4.1",
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "prisma": "^5.20.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.1",
+    "@types/node": "^22.7.0",
+    "@types/react": "^18.3.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
